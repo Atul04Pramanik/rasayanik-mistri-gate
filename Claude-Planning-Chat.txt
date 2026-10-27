@@ -1,0 +1,197 @@
+RASAYANIK MISTRI GATE PLATFORM
+CLAUDE PLANNING CHAT
+========================================
+Purpose: Product vision, MVP scope, data schema, adaptive dice logic, PDF-to-question workflow, and UX copy.
+Note: The planning content below is preserved from the supplied Claude chat. Treat estimates and recommendations as proposals to review, not guaranteed facts.
+========================================
+
+The dice mechanic is not your risk. Scope and the question bank are, and they decide whether this ships before GATE 2027.
+
+**Timeline up front.** This estimate is mostly [Likely] and partly [Guessing], because it depends on things I don't know: your hours per day, how fast you learn FlutterFlow, and how many verified questions you already have. I assume solo, about 4 hours a day, no coding background beyond Python.
+
+| Scope | Days from today (26 Oct) | Ready by |
+|---|---|---|
+| MVP: login, dice, timer, feedback, stats, adaptive pick, ~300–500 verified questions | 18–25 | ~mid-Nov |
+| Social layer: groups, leaderboard, heatmap | +12–15 | ~early Dec |
+| Duels, scheduled notifications, privacy toggle, beta testing, bug fixing | +20–25 | ~mid-Jan |
+| **Everything in your spec, "completely"** | **~60–75** | **Jan** |
+
+[Likely] GATE 2027 is in February, so the full build reaches users about a month before their exam. Ship the MVP in 3–4 weeks, get real GATE 2027 students on it, and build the social layer in the order they ask for it.
+
+## Verdict on the idea
+
+- [Likely] The differentiator is the Hinglish explanations in the Ayon/Drishti/Host_RM voices, plus your channel as free distribution. The dice is a cheap, fun wrapper around that.
+- [Likely] The GATE app market is crowded with free question banks. You won't win on features, only on explanation quality and community.
+- [Certain] Your schema is MCQ-only. GATE Chemical also has MSQ and NAT questions, with different marking (MCQ has negative marks; MSQ and NAT don't). I've fixed this in the schema below.
+
+## Where I disagree
+
+**1. User-uploaded PDFs.** I disagree because users uploading PDFs means copyrighted coaching and publisher material flows through your app, and LLM extraction on messy scans produces wrong answer keys. Here's what I'd do instead: make ingestion admin-only. You upload PDFs, run the pipeline below, review, and then publish. The risk in your approach is a takedown on your channel's name and a wrong key teaching students the wrong answer.
+
+**2. Glide + Google Sheets.** I disagree because Sheets has API rate limits and no real-time behaviour [Likely]. Leaderboards and duels will lag or break past a few dozen concurrent users. Here's what I'd do instead: FlutterFlow + Firebase only. The risk in Glide is a rebuild right when you get traction. [Certain] Cloud Functions need Firebase's Blaze (pay-as-you-go) plan, so a billing account is required, though costs at this scale are usually tiny [Likely].
+
+**3. Scheduled push notifications on a PWA.** [Likely] Web push is the weakest part of the PWA route in FlutterFlow. On iPhones it only works after the user installs the app to the home screen. Plan on WhatsApp/Telegram reminders from your channel as a fallback, and don't build your retention on push.
+
+## 1. Database schema (Firestore)
+
+```
+users/{uid}
+  displayName, avatar: "ayon" | "drishti" | "default"
+  visibility: "public" | "private"
+  createdAt, lastActiveDate (YYYY-MM-DD)
+  stats: { totalSolved, totalCorrect, accuracyPct,
+           currentStreak, longestStreak, catalystPoints }
+  topicStats: {                       // denormalized, drives adaptive logic
+    "heat_transfer": { attempted, correct, avgTimeSec, lastSeen },
+    "cre": { ... }
+  }
+  groupIds: [gid]
+  notif: { fcmTokens: [], times: ["08:00","14:00"], tz: "Asia/Kolkata" }
+
+users/{uid}/daily/{YYYY-MM-DD}        // heatmap reads this, not attempts
+  solved, correct, pointsEarned
+
+questions/{qid}
+  type: "MCQ" | "MSQ" | "NAT"
+  question                            // LaTeX for equations
+  imageUrl | null                     // diagrams, graphs, P&ID
+  options: [{ id: "A", text }]        // empty for NAT
+  correctAnswer: ["B"] | { min: 2.4, max: 2.6 }
+  marks: 1 | 2
+  negativeMarking: 0.33 | 0.67 | 0
+  topic, subtopic                     // GATE CH syllabus subjects
+  difficulty: 1-5
+  timeLimitSec                        // e.g. 60 for 1-mark, 120 for 2-mark
+  explanationHinglish: { speaker: "ayon"|"drishti"|"host_rm", text, trap }
+  source: { exam, year, sourceId }
+  status: "draft" | "needs_review" | "verified" | "published"
+  contentHash                         // dedupe
+
+attempts/{attemptId}
+  uid, qid, topic, mode: "dice" | "duel" | "practice"
+  selected, isCorrect, timedOut, timeTakenSec
+  pointsAwarded, duelId | null, dateKey, createdAt
+
+groups/{gid}
+  name, joinCode (unique), ownerUid, memberCount, createdAt
+groups/{gid}/members/{uid}
+  displayName (cached), role, joinedAt
+  weeklyScore, weeklySolved, weeklyCorrect, activeDaysThisWeek
+
+duels/{duelId}
+  challengerUid, opponentUid, questionIds[5]
+  status: "pending" | "active" | "done" | "expired"
+  scores: { uid: n }, winnerUid, bonusPoints, expiresAt
+```
+
+Cloud Functions to write: `onAttemptCreate` updates user stats, topicStats, the daily doc, and group member scores. `joinGroup(code)`, `createDuel`, and a scheduled notification sender complete the set.
+
+**Leaderboard score** (consistency + accuracy, so grinders don't just win on volume):
+`weeklyScore = correct × 10 + activeDays × 20 + accuracyPct × 0.5`
+
+## 2. Dice Roll logic
+
+```
+function rollDice(user, filters):
+    pool = questions WHERE status == "published"
+           AND matches(filters)
+           AND NOT attempted by user in last 7 days (unless pool < 20)
+
+    // 20% pure randomness keeps it a dice, not a tutor
+    if random() < 0.20:
+        return uniformPick(pool)
+
+    for q in pool:
+        t = user.topicStats[q.topic]
+        // Bayesian smoothing: new topics aren't instantly "weak" or "strong"
+        acc = (t.correct + 2.5) / (t.attempted + 5)
+        weakness = 1 - acc                          // 0..1
+
+        targetDiff = clamp(round(1 + acc * 4), 1, 5)  // better acc -> harder
+        diffFit = 1 - abs(q.difficulty - targetDiff) / 4
+
+        wasWrongBefore = lastAttempt(user, q) is wrong
+        reviewBoost = 1.5 if wasWrongBefore AND daysSince >= 3 else 1.0
+        unseenBoost = 1.2 if never attempted else 1.0
+
+        q.weight = (0.3 + 1.7 * weakness) * (0.5 + diffFit)
+                   * reviewBoost * unseenBoost
+
+    // anti-streak guard: no topic > 40% of last 10 rolls
+    for q in pool:
+        if share(last10Rolls, q.topic) > 0.40: q.weight *= 0.3
+
+    return weightedPick(pool, q.weight)   // roulette-wheel on cumulative sum
+```
+
+**Dice face.** Pick the question first, then animate. The face is cosmetic, but you can make it a mechanic: a 6 means "Weakness Distillation round" (forces your lowest-accuracy topic) with 2× Catalyst Points. Players get to feel the dice matters.
+
+## 3. PDF → JSON system prompt
+
+I'd run this in two passes: extract, then independently verify.
+
+```
+You are a GATE Chemical Engineering question-extraction engine for the
+"Rasayanik Mistri" platform. Convert the raw PDF text below into a JSON array.
+Output ONLY valid JSON. No markdown, no commentary.
+
+SCHEMA per question:
+{ "type": "MCQ|MSQ|NAT", "question": str (equations in LaTeX),
+  "options": [{"id":"A","text":str}], "correct_answer": ["B"] | {"min":n,"max":n} | null,
+  "marks": 1|2, "topic": str, "subtopic": str, "difficulty": 1-5,
+  "has_diagram": bool, "needs_review": bool, "review_reason": str|null,
+  "explanation_hinglish": {"speaker":"ayon|drishti|host_rm","text":str,"trap":str} }
+
+HARD RULES
+1. NEVER invent correct_answer. Use only the answer key present in the text.
+   If missing or ambiguous: correct_answer=null, needs_review=true.
+2. If a question depends on a figure/graph/table you cannot see:
+   has_diagram=true, needs_review=true. Do not guess its content.
+3. If text is garbled (OCR errors in numbers/units), needs_review=true and
+   quote the broken part in review_reason. Never "fix" numerical data silently.
+4. topic must be one of: [Engineering Maths, Process Calculations,
+   Thermodynamics, Fluid Mechanics, Mechanical Operations, Heat Transfer,
+   Mass Transfer, CRE, Instrumentation & Process Control,
+   Plant Design & Economics, Chemical Technology, General Aptitude].
+5. difficulty: 1 = direct formula/definition, 3 = 2-step application,
+   5 = multi-concept numerical.
+
+HINGLISH EXPLANATION RULES
+- Roman-script Hindi + English technical terms. Never translate terms like
+  "Reynolds number", "azeotrope", "enthalpy".
+- Speaker: ayon = concept/theory questions (curious, "arre dekho, yahan
+  physics yeh hai"); drishti = numericals and plant-practice questions
+  (grounded, "plant mein aisa hota hai"); host_rm = exam-strategy/trap questions.
+- Structure: (1) correct answer in one line, (2) why it is correct, with
+  working steps for numericals, (3) "trap": the specific mistake that makes
+  the wrong options attractive. Max 120 words.
+- If you are not confident in the working, set needs_review=true instead
+  of writing a confident-sounding wrong explanation.
+
+Process these pages in batches of 5-10 questions.
+INPUT: {{pdf_text_chunk}}
+```
+
+**Verification pass:** feed each question without its key to a second call, ask it to solve independently, and flag every mismatch for human review. [Likely] LLMs get a meaningful share of multi-step GATE numericals wrong, so you must manually verify every numerical before publishing. Your channel's credibility rides on this.
+
+## 4. UX copy: failure feedback
+
+**Ayon (nerdy scientist)**
+1. "Arre! Units check kiye bina answer mark kar diya? Dimensional analysis ek baar lagate toh yeh option pehle hi out ho jaata. Chalo, wapas lab mein, ek baar phir."
+2. "Interesting... tumhara answer actually ek aur concept ke liye bilkul sahi hota. Bas yahan woh concept apply nahi hota. Samjhte hain kyun."
+3. "Reaction incomplete raha, conversion sirf 40% hua. Koi baat nahi, catalyst point gaya nahi, bas thoda recycle karte hain."
+
+**Drishti (practical engineer)**
+1. "Plant mein yeh galti hoti toh relief valve pehle udd jaata. Yahan sirf 10 seconds gaye. Dekho kahan chook hui."
+2. "Formula sahi tha, bas value galat jagah daal di. Control room mein yahi reading galat padhne se shutdown hota hai. Dobara padho, dhyan se."
+3. "Yeh question GATE ka favourite trap hai. Sab yahin phisalte hain, tum akele nahi ho. Ab dekho examiner ne kaunsa jaal bichhaya tha."
+
+[Guessing] on tone fit: you know your channel's voice far better than I do, so treat these as drafts and rewrite them in your own words. One caution: Drishti's lines 1 and 3 should never mock the student. Students who just failed a question are your most fragile users.
+
+## What I'd do this week
+
+1. Collect 200–300 questions you have the rights to use (PYQs from the official GATE site, or your own originals) and run the pipeline above.
+2. Build only: login → dice → timer → answer → Hinglish feedback → stats. No groups, no duels.
+3. Put it in front of 20 people from your channel's audience and watch which feature they ask for next.
+
+Do you already have a question bank you own the rights to, or is sourcing it still open? That answer moves the MVP date more than any tool choice.
