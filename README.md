@@ -1,5 +1,18 @@
-# rasayanik-mistri-gate
-Gamified GATE Chemical Engineering preparation platform
+<div align="center">
+
+![Rasayanik Mistri | Chemical Engineering in Hinglish](rasayanik-mistri-banner.png.jpeg)
+
+# Rasayanik Mistri
+### Chemical Engineering in Hinglish
+
+**Real Science • Real Engineering • Real Stories**
+
+</div>
+
+[🧪 **Explore RM GATE Lab**](https://atul04pramanik.github.io/rasayanik-mistri-gate/RMindex.html)
+
+A Gamified GATE Chemical Engineering practice platform by Rasayanik Mistri.
+
 # Rasayanik Mistri: GATE Lab
 
 > *Engineering ko sirf padhte nahi... samajhte hain.*
