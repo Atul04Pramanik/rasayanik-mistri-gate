@@ -9,9 +9,9 @@
 
 </div>
 
-[🧪 **Explore RM GATE Lab**](https://atul04pramanik.github.io/rasayanik-mistri-gate/RMindex.html)
+<p align="center"> <img src="YOUTUBE LOGO.png" alt="RM GATE Lab logo" width="140"> </p> <h1 align="center">RM GATE Lab 🎲</h1> <p align="center"><b>Chemical Engineering in Hinglish</b></p>
 
-A Gamified GATE Chemical Engineering practice platform by Rasayanik Mistri.
+A free, mobile-friendly chemical engineering practice game. Roll a dice, get a question, beat the timer, and learn from a Hinglish explanation in the voice of Ayon, Drishti or Host RM.
 
 # Rasayanik Mistri: GATE Lab
 
@@ -19,7 +19,7 @@ A Gamified GATE Chemical Engineering practice platform by Rasayanik Mistri.
 
 A free, mobile-friendly chemical engineering practice game. Roll a dice, get a question, beat the timer, and learn from a Hinglish explanation in the voice of Ayon, Drishti or Host RM.
 
-Live demo: `[https://YOUR-USERNAME.github.io/YOUR-REPO](https://atul04pramanik.github.io/rasayanik-mistri-gate/RMindex.html)`
+Live demo: `[[https://YOUR-USERNAME.github.io/YOUR-REPO](https://atul04pramanik.github.io/rasayanik-mistri-gate/RMindex.html)](https://atul04pramanik.github.io/rasayanik-mistri-gate/RMindex.html)`
 
 > Status: working prototype. It has 102 questions, runs entirely in your browser, and has no accounts or leaderboards yet. See the [roadmap](#roadmap).
 
